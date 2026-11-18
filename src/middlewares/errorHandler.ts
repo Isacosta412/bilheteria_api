@@ -70,9 +70,35 @@ function tratarErroPrisma(res: Response, erro: Prisma.PrismaClientKnownRequestEr
         'A operação viola um relacionamento entre registros (referência inexistente ou em uso).',
       );
       return true;
+    // Deadlock ou conflito de escrita detectado pelo Prisma: a transação já foi desfeita.
+    case 'P2034':
+      responderConflitoConcorrente(res);
+      return true;
+    // Erro em SQL puro ($queryRaw/$executeRaw): trata deadlock (40P01) e falha de serialização (40001).
+    case 'P2010':
+      if (CODIGOS_CONCORRENCIA.has(String(erro.meta?.['code'] ?? ''))) {
+        responderConflitoConcorrente(res);
+        return true;
+      }
+      return false;
+    // Não houve conexão livre a tempo para abrir a transação (pico de carga).
+    case 'P2028':
+      responder(res, 503, 'SERVIDOR_OCUPADO', 'O servidor está ocupado no momento. Tente novamente em instantes.');
+      return true;
     default:
       return false;
   }
+}
+
+const CODIGOS_CONCORRENCIA = new Set(['40P01', '40001']);
+
+function responderConflitoConcorrente(res: Response): void {
+  responder(
+    res,
+    409,
+    'CONFLITO_CONCORRENTE',
+    'Outra operação alterou os mesmos dados ao mesmo tempo. Atualize a tela e tente novamente.',
+  );
 }
 
 /**

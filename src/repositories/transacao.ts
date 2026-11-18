@@ -21,5 +21,10 @@ export const clientePadrao: ClienteBanco = prisma;
  * Qualquer erro lançado dentro de `fn` (inclusive um AppError) desfaz tudo (rollback).
  */
 export function emTransacao<T>(fn: (tx: ClienteBanco) => Promise<T>): Promise<T> {
-  return prisma.$transaction(fn, { timeout: 15_000 });
+  return prisma.$transaction(fn, {
+    // Sob pico (ex.: 20 reservas simultâneas), as transações esperam na fila por uma conexão
+    // do pool em vez de falhar com P2028 depois dos 2 s padrão do Prisma.
+    maxWait: 10_000,
+    timeout: 15_000,
+  });
 }

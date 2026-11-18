@@ -3,6 +3,7 @@ import { lerBody, lerParams, lerQuery } from '../middlewares/validar';
 import type { IdParam } from '../schemas/comum';
 import type { CriarSessaoEntrada, ListarSessoesQuery } from '../schemas/sessao.schema';
 import { sessaoService } from '../services/sessao.service';
+import type { MapaAssentosDTO } from '../types/mapa';
 import type { SessaoDTO } from '../types/sessao';
 
 export const sessaoController = {
@@ -12,6 +13,10 @@ export const sessaoController = {
 
   async buscarPorId(req: Request, res: Response<SessaoDTO>): Promise<void> {
     res.json(await sessaoService.buscarPorId(lerParams<IdParam>(req).id));
+  },
+
+  async mapaAssentos(req: Request, res: Response<MapaAssentosDTO>): Promise<void> {
+    res.json(await sessaoService.mapaAssentos(lerParams<IdParam>(req).id, req.usuario?.id));
   },
 
   async criar(req: Request, res: Response<SessaoDTO>): Promise<void> {

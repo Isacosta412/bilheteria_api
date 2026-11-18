@@ -1,12 +1,15 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, StatusAssento } from '@prisma/client';
 import { DURACAO_MAXIMA_MINUTOS, FUSO_HORARIO, LIMPEZA_MINUTOS } from '../config/constantes';
 import { Conflito, NaoEncontrado, RegraNegocio } from '../errors';
 import { filmeRepository } from '../repositories/filme.repository';
 import { salaRepository } from '../repositories/sala.repository';
 import { sessaoRepository, type SessaoComDetalhes } from '../repositories/sessao.repository';
+import { sessaoAssentoRepository, type LinhaMapa } from '../repositories/sessaoAssento.repository';
 import { emTransacao } from '../repositories/transacao';
 import type { CriarSessaoEntrada, ListarSessoesQuery } from '../schemas/sessao.schema';
+import type { FilaMapaDTO, MapaAssentosDTO } from '../types/mapa';
 import type { SessaoDTO } from '../types/sessao';
+import { compararFilas } from '../utils/filas';
 
 const MINUTO_MS = 60_000;
 const DIA_MS = 24 * 60 * MINUTO_MS;
@@ -29,6 +32,18 @@ function paraSessaoDTO(sessao: SessaoComDetalhes): SessaoDTO {
     filme: sessao.filme,
     sala: sessao.sala,
   };
+}
+
+/**
+ * Status que o cliente deve ver AGORA: um assento RESERVADO cujo prazo já passou está livre
+ * para nova reserva (o UPDATE da reserva aceita esse caso), mesmo que o job de expiração
+ * ainda não tenha rodado.
+ */
+function statusEfetivo(linha: LinhaMapa, agora: Date): StatusAssento {
+  if (linha.status === StatusAssento.RESERVADO && linha.reservadoAte !== null && linha.reservadoAte < agora) {
+    return StatusAssento.LIVRE;
+  }
+  return linha.status;
 }
 
 async function buscarOuFalhar(id: number): Promise<SessaoDTO> {
@@ -63,6 +78,43 @@ export const sessaoService = {
 
   buscarPorId(id: number): Promise<SessaoDTO> {
     return buscarOuFalhar(id);
+  },
+
+  /**
+   * Mapa de assentos da sessão. `usuarioId` (opcional) marca os assentos que o próprio usuário
+   * reservou. Nada que identifique outros clientes (reservaId, dono, prazo) sai daqui.
+   */
+  async mapaAssentos(id: number, usuarioId?: number): Promise<MapaAssentosDTO> {
+    const sessao = await buscarOuFalhar(id);
+    const agora = new Date();
+    const linhas = await sessaoAssentoRepository.listarMapa(id);
+
+    const resumo = { livres: 0, reservados: 0, vendidos: 0 };
+    const porFila = new Map<string, FilaMapaDTO>();
+
+    for (const linha of linhas) {
+      const status = statusEfetivo(linha, agora);
+      if (status === StatusAssento.LIVRE) resumo.livres++;
+      else if (status === StatusAssento.RESERVADO) resumo.reservados++;
+      else resumo.vendidos++;
+
+      const fila = porFila.get(linha.fila) ?? { fila: linha.fila, assentos: [] };
+      fila.assentos.push({
+        assentoId: linha.assentoId,
+        numero: linha.numero,
+        tipo: linha.tipo,
+        status,
+        minhaReserva:
+          status === StatusAssento.RESERVADO && usuarioId !== undefined && linha.donoReservaId === usuarioId,
+      });
+      porFila.set(linha.fila, fila);
+    }
+
+    const filas = [...porFila.values()]
+      .sort((a, b) => compararFilas(a.fila, b.fila))
+      .map((f) => ({ ...f, assentos: f.assentos.sort((a, b) => a.numero - b.numero) }));
+
+    return { sessao, filas, resumo };
   },
 
   /**

@@ -15,6 +15,18 @@ export const autenticar: RequestHandler = (req, _res, next) => {
   next();
 };
 
+/**
+ * Login opcional: sem cabeçalho, segue anônimo; com token, ele precisa ser válido
+ * (um token vencido devolve 401 para o app saber que precisa logar de novo).
+ */
+export const autenticacaoOpcional: RequestHandler = (req, res, next) => {
+  if (!req.headers.authorization) {
+    next();
+    return;
+  }
+  autenticar(req, res, next);
+};
+
 /** Exige que o usuário autenticado tenha um dos papéis informados. Use depois de `autenticar`. */
 export function autorizar(...papeis: Papel[]): RequestHandler {
   return (req, _res, next) => {

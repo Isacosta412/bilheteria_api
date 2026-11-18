@@ -17,6 +17,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "seed": "tsx prisma/seed.ts",
+    "demo:concorrencia": "tsx scripts/teste-concorrencia.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {

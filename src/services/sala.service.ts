@@ -4,11 +4,7 @@ import { salaRepository, type NovoAssento, type SalaComAssentos } from '../repos
 import { emTransacao } from '../repositories/transacao';
 import type { AtualizarSalaEntrada, CriarSalaEntrada, EstruturaSala, PosicaoAssento } from '../schemas/sala.schema';
 import type { FilaLayoutDTO, SalaDetalheDTO, SalaDTO } from '../types/sala';
-
-/** Ordem natural das filas: A, B, ..., Z, AA, AB... */
-function compararFilas(a: string, b: string): number {
-  return a.length - b.length || a.localeCompare(b);
-}
+import { compararFilas } from '../utils/filas';
 
 /** A, B, ..., Z para qtdFilas (o schema limita a 26). */
 function nomesDeFilas(qtd: number): string[] {

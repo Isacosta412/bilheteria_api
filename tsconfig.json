@@ -20,5 +20,5 @@
     "sourceMap": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "prisma", "vitest.config.mts"]
+  "include": ["src", "tests", "prisma", "scripts", "vitest.config.mts"]
 }

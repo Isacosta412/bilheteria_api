@@ -1,0 +1,117 @@
+import { CanalReserva, Prisma, StatusReserva } from '@prisma/client';
+import { clientePadrao, type ClienteBanco } from './transacao';
+
+const comDetalhes = {
+  sessao: {
+    select: {
+      id: true,
+      dataHora: true,
+      filme: { select: { titulo: true } },
+      sala: { select: { nome: true } },
+    },
+  },
+  assentos: {
+    select: { assento: { select: { id: true, fila: true, numero: true, tipo: true } } },
+    orderBy: { assentoId: 'asc' },
+  },
+} satisfies Prisma.ReservaInclude;
+
+export type ReservaComDetalhes = Prisma.ReservaGetPayload<{ include: typeof comDetalhes }>;
+
+/** Sessão lida (e travada) no início da reserva. */
+export interface SessaoParaReserva {
+  id: number;
+  dataHora: Date;
+  preco: Prisma.Decimal;
+  cancelada: boolean;
+}
+
+export interface NovaReserva {
+  usuarioId: number;
+  sessaoId: number;
+  total: Prisma.Decimal;
+  expiraEm: Date;
+  canal: CanalReserva;
+}
+
+export interface ReservaTravada {
+  id: number;
+  usuarioId: number;
+  status: StatusReserva;
+  expiraEm: Date;
+}
+
+export const reservaRepository = {
+  /**
+   * Passo 1 da reserva: lê a sessão com FOR SHARE. Várias reservas na mesma sessão continuam em
+   * paralelo (FOR SHARE não conflita com FOR SHARE), mas o cancelamento da sessão (FOR UPDATE)
+   * espera elas terminarem, e vice-versa.
+   */
+  async travarSessaoCompartilhada(sessaoId: number, cliente: ClienteBanco): Promise<SessaoParaReserva | null> {
+    const linhas = await cliente.$queryRaw<
+      { id: number; data_hora: Date; preco: Prisma.Decimal; cancelada: boolean }[]
+    >(Prisma.sql`SELECT id, data_hora, preco, cancelada FROM sessao WHERE id = ${sessaoId} FOR SHARE`);
+    const linha = linhas[0];
+    return linha ? { id: linha.id, dataHora: linha.data_hora, preco: linha.preco, cancelada: linha.cancelada } : null;
+  },
+
+  /**
+   * Lock consultivo (advisory) do par cliente+sessão até o fim da transação: requisições do MESMO
+   * cliente para a MESMA sessão passam uma de cada vez; as de outros clientes não esperam.
+   * ($executeRaw porque pg_advisory_xact_lock devolve void.)
+   */
+  async travarClienteNaSessao(usuarioId: number, sessaoId: number, cliente: ClienteBanco): Promise<void> {
+    await cliente.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${usuarioId}::int, ${sessaoId}::int)`);
+  },
+
+  criar(dados: NovaReserva, cliente: ClienteBanco): Promise<{ id: number }> {
+    return cliente.reserva.create({ data: dados, select: { id: true } });
+  },
+
+  contarOutrasPendentesValidas(
+    usuarioId: number,
+    sessaoId: number,
+    excetoId: number,
+    agora: Date,
+    cliente: ClienteBanco,
+  ): Promise<number> {
+    return cliente.reserva.count({
+      where: {
+        usuarioId,
+        sessaoId,
+        status: StatusReserva.PENDENTE,
+        expiraEm: { gte: agora },
+        id: { not: excetoId },
+      },
+    });
+  },
+
+  buscarPorId(id: number, cliente: ClienteBanco = clientePadrao): Promise<ReservaComDetalhes | null> {
+    return cliente.reserva.findUnique({ where: { id }, include: comDetalhes });
+  },
+
+  listarDoUsuario(usuarioId: number, cliente: ClienteBanco = clientePadrao): Promise<ReservaComDetalhes[]> {
+    return cliente.reserva.findMany({ where: { usuarioId }, include: comDetalhes, orderBy: { criadoEm: 'desc' } });
+  },
+
+  /** Trava a reserva (SELECT ... FOR UPDATE) até o fim da transação. */
+  async travar(id: number, cliente: ClienteBanco): Promise<ReservaTravada | null> {
+    const linhas = await cliente.$queryRaw<
+      { id: number; usuario_id: number; status: StatusReserva; expira_em: Date }[]
+    >(Prisma.sql`SELECT id, usuario_id, status, expira_em FROM reserva WHERE id = ${id} FOR UPDATE`);
+    const linha = linhas[0];
+    return linha ? { id: linha.id, usuarioId: linha.usuario_id, status: linha.status, expiraEm: linha.expira_em } : null;
+  },
+
+  async marcarCancelada(id: number, cliente: ClienteBanco): Promise<void> {
+    await cliente.reserva.update({ where: { id }, data: { status: StatusReserva.CANCELADA } });
+  },
+
+  /** Chama a stored procedure do banco (migration sql_regras_banco). Devolve quantas reservas expiraram. */
+  async expirarVencidas(cliente: ClienteBanco = clientePadrao): Promise<number> {
+    const [resultado] = await cliente.$queryRaw<{ qtd_expiradas: number }[]>(
+      Prisma.sql`CALL sp_expirar_reservas(NULL)`,
+    );
+    return resultado?.qtd_expiradas ?? 0;
+  },
+};

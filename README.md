@@ -43,6 +43,7 @@ Se o banco estiver fora do ar, a rota responde **503** com `{"status":"erro","ba
 | `npm run prisma:migrate` | Cria/aplica migrations em desenvolvimento (`prisma migrate dev`) |
 | `npm run prisma:deploy` | Aplica migrations pendentes em produção (`prisma migrate deploy`) |
 | `npm run seed` | Cria/atualiza o operador inicial (idempotente; os dados de demonstração entram no B08) |
+| `npm run demo:concorrencia -- --url <url>` | Demonstração ao vivo: N reservas simultâneas do mesmo assento (ver "Concorrência") |
 
 ### Variáveis de ambiente
 
@@ -93,8 +94,13 @@ Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 
 | PUT | `/salas/:id` | OPERADOR | `{ nome, ativa, estrutura? }`: estrutura bloqueada com sessões |
 | GET | `/sessoes?filmeId=&salaId=&data=&incluirPassadas=&incluirCanceladas=` | público | Por padrão, só futuras e não canceladas |
 | GET | `/sessoes/:id` | público | Detalhe com `assentosLivres` |
+| GET | `/sessoes/:id/assentos` | público (login opcional) | Mapa: filas, status efetivo, `minhaReserva`, resumo |
 | POST | `/sessoes` | OPERADOR | `{ filmeId, salaId, dataHora, preco }` |
 | PATCH | `/sessoes/:id/cancelar` | OPERADOR | Só sem ingressos vendidos |
+| POST | `/reservas` | CLIENTE/OPERADOR | `{ sessaoId, assentoIds }`: reserva temporária (`RESERVA_MINUTOS`) |
+| GET | `/reservas/minhas` | logado | Reservas do usuário |
+| GET | `/reservas/:id` | dono ou OPERADOR | Detalhe (404 para outros clientes) |
+| DELETE | `/reservas/:id` | dono ou OPERADOR | Cancela uma reserva PENDENTE e libera os assentos |
 
 ### Regras de negócio implementadas (services)
 
@@ -112,6 +118,53 @@ Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 
 - Não podem se sobrepor na mesma sala, considerando a duração do filme + 15 min de limpeza (`SESSAO_SOBREPOSTA`).
 - A checagem e o INSERT rodam na mesma transação, com a sala travada por `SELECT ... FOR UPDATE`.
 - Cancelar: na mesma transação, cancela as reservas pendentes e só então confere os ingressos. Se houver venda, `SESSAO_COM_INGRESSOS` e rollback.
+
+**Reservas (regras 2, 3, 5 e 10)**
+- Cada reserva tem de 1 a 10 assentos, sem repetidos e todos da sala da sessão (`ASSENTO_INVALIDO`).
+- A sessão precisa estar no futuro e não cancelada.
+- O total (quantidade × preço) e o prazo são sempre calculados no servidor.
+- Um cliente só pode ter 1 reserva pendente por sessão (`RESERVA_PENDENTE_EXISTENTE`).
+- Uma reserva vencida já aparece como livre no mapa e como `EXPIRADA` nas consultas, mesmo antes do job.
+- O cliente cancela a própria reserva pendente.
+
+## Concorrência
+
+O ponto crítico é **dois clientes escolhendo o mesmo assento ao mesmo tempo**. Em `reservaService.reservar`, tudo acontece em **uma transação**:
+
+1. `SELECT ... FROM sessao FOR SHARE`: a sessão é travada em modo compartilhado. Outras reservas seguem em paralelo, mas o cancelamento da sessão (`FOR UPDATE`) espera.
+2. `INSERT` da reserva `PENDENTE`, com `expira_em` e `total` calculados no servidor.
+3. `SELECT ... FROM sessao_assento ... ORDER BY assento_id FOR UPDATE`: as linhas dos assentos são travadas **sempre na mesma ordem**, o que evita deadlock entre pedidos com conjuntos cruzados.
+4. O **UPDATE condicional atômico**:
+   ```sql
+   UPDATE sessao_assento SET status = 'RESERVADO', reserva_id = $r, reservado_ate = $t
+    WHERE sessao_id = $s AND assento_id = ANY($ids)
+      AND (status = 'LIVRE' OR (status = 'RESERVADO' AND reservado_ate < now()))
+   ```
+5. Se o número de linhas afetadas for diferente do número de assentos pedidos → `Conflito('ASSENTO_INDISPONIVEL')` (409) e **rollback**: nada fica gravado.
+
+**Por que é seguro (READ COMMITTED):**
+- A segunda transação concorrente **espera** o lock da linha que a primeira travou.
+- Depois do COMMIT da primeira, o PostgreSQL **reavalia o WHERE** na versão nova da linha (agora `RESERVADO`, com prazo no futuro).
+- A segunda afeta 0 linhas e recebe 409.
+- Como segunda barreira, `UNIQUE(sessao_id, assento_id)` e `UNIQUE(sessao_assento_id)` em `ingresso` garantem no banco que um assento nunca é vendido duas vezes.
+- Deadlock, conflito de serialização e timeout do pool viram 409/503 no errorHandler, nunca 500.
+
+**Expiração:**
+- O job `src/jobs/expirarReservas.ts` (node-cron, a cada minuto, desligado em `NODE_ENV=test`) chama `reservaService.expirarVencidas()` → `CALL sp_expirar_reservas()`.
+- Ele não é a única defesa: o UPDATE acima já aceita assentos com reserva vencida.
+
+**Provas:**
+- `tests/concorrencia.test.ts`:
+  - 20 reservas simultâneas do mesmo assento → exatamente 1 × 201 e 19 × 409, com 1 linha `RESERVADO` e 1 reserva no banco;
+  - pares de assentos cruzados → sem deadlock;
+  - os cenários de expiração.
+- Demonstração ao vivo:
+  ```bash
+  npm run demo:concorrencia -- --url https://sua-api.exemplo.com --requisicoes 20
+  ```
+  - Usa o operador de `--email/--senha` (ou `DEMO_OPERADOR_EMAIL`/`DEMO_OPERADOR_SENHA`) e reaproveita (ou cria) a sessão "Demo Concorrência".
+  - Imprime cada resposta e o veredito, e cancela a reserva vencedora no final.
+  - Defina `DEMO_CLIENTE_SENHA` para reaproveitar os 2 clientes de demonstração. Sem ela, cada execução cria 2 clientes novos e faz mais chamadas em `/auth`, que tem limite de 20 por 15 minutos por IP.
 
 ## Arquitetura em camadas
 
