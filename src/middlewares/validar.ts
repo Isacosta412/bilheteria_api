@@ -1,4 +1,4 @@
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import type { ZodType } from 'zod';
 
 export interface SchemasRequisicao {
@@ -32,4 +32,22 @@ export function validar(schemas: SchemasRequisicao): RequestHandler {
     }
     next();
   };
+}
+
+/*
+ * Leitura tipada dos dados já validados.
+ * Os tipos do Express dizem que body é `any` e params/query são strings; depois do `validar`
+ * eles já têm o formato do schema (números convertidos, defaults aplicados). Estes helpers
+ * concentram o único cast em um lugar só, e só devem ser usados em rotas que passaram pelo `validar`.
+ */
+export function lerBody<T>(req: Request): T {
+  return req.body as T;
+}
+
+export function lerParams<T>(req: Request): T {
+  return req.params as unknown as T;
+}
+
+export function lerQuery<T>(req: Request): T {
+  return req.query as unknown as T;
 }

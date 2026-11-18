@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import { env } from '../config/env';
 import type { RespostaErro } from '../types/erro';
 
 const respostaMuitasTentativas: RespostaErro = {
@@ -15,4 +16,6 @@ export const limiteAutenticacao = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: respostaMuitasTentativas,
+  // Nos testes automatizados o limite atrapalharia (muitos logins em sequência).
+  skip: () => env.NODE_ENV === 'test',
 });

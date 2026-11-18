@@ -19,10 +19,13 @@ cp .env.example .env
 # 3. Subir o PostgreSQL 16 local
 docker compose up -d
 
-# 4. Aplicar as migrations (a partir da etapa B02)
+# 4. Aplicar as migrations
 npm run prisma:migrate
 
-# 5. Rodar em modo desenvolvimento (recarrega ao salvar)
+# 5. Criar o primeiro OPERADOR (credenciais SEED_OPERADOR_* do .env)
+npm run seed
+
+# 6. Rodar em modo desenvolvimento (recarrega ao salvar)
 npm run dev
 ```
 
@@ -36,10 +39,10 @@ Se o banco estiver fora do ar, a rota responde **503** com `{"status":"erro","ba
 | `npm run dev` | Sobe a API com `tsx watch` (recarrega ao salvar) |
 | `npm run build` | `prisma generate` + compila `src/` para `dist/` |
 | `npm start` | Roda a versão compilada (`node dist/server.js`) |
-| `npm test` | Roda os testes (Vitest + Supertest). Precisa do banco no ar |
+| `npm test` | Roda os testes (Vitest + Supertest) no banco `bilheteria_test`. Precisa do Docker no ar |
 | `npm run prisma:migrate` | Cria/aplica migrations em desenvolvimento (`prisma migrate dev`) |
 | `npm run prisma:deploy` | Aplica migrations pendentes em produção (`prisma migrate deploy`) |
-| `npm run seed` | Popula o banco com dados de demonstração |
+| `npm run seed` | Cria/atualiza o operador inicial (idempotente; os dados de demonstração entram no B08) |
 
 ### Variáveis de ambiente
 
@@ -60,6 +63,55 @@ Confira o arquivo .env (use o .env.example como modelo).
 | `JWT_EXPIRES_IN` | Validade do token (ex.: `1d`, `12h`) |
 | `RESERVA_MINUTOS` | Tempo até a reserva pendente expirar (padrão 10) |
 | `CORS_ORIGIN` | Origens permitidas, separadas por vírgula |
+| `SEED_OPERADOR_NOME`, `SEED_OPERADOR_EMAIL`, `SEED_OPERADOR_SENHA` | Operador criado pelo `npm run seed` (lidas só pelo seed) |
+
+### Testes e banco de teste
+
+Os testes usam um banco separado, `bilheteria_test`, no mesmo container. O banco de desenvolvimento nunca é tocado.
+- Antes da suíte, `tests/global-setup.ts` roda `prisma migrate deploy` nesse banco.
+- Cada arquivo limpa as tabelas com `limparBanco()`, que se recusa a rodar se o banco não tiver "test" no nome.
+- Para usar outro servidor (ex.: no CI), defina `TEST_DATABASE_URL`.
+
+## Rotas da API
+
+Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 8601 com fuso; valores em reais como número na entrada e string `"30.00"` na saída.
+
+| Método | Rota | Perfil | Descrição |
+|---|---|---|---|
+| GET | `/health` | público | Status da API e do banco |
+| POST | `/auth/registrar` | público | Cadastro `{ nome, email, senha }`: sempre `CLIENTE` |
+| POST | `/auth/login` | público | `{ email, senha }` → `{ token, usuario }` |
+| GET | `/auth/me` | logado | Usuário do token |
+| POST | `/usuarios/operadores` | OPERADOR | Cria outro operador `{ nome, email, senha }` |
+| GET | `/filmes?ativo=&busca=` | público | Lista filmes |
+| GET | `/filmes/:id` | público | Detalhe do filme |
+| POST / PUT | `/filmes`, `/filmes/:id` | OPERADOR | Cria / substitui `{ titulo, sinopse, duracaoMinutos, classificacao, genero, posterUrl? }` |
+| PATCH | `/filmes/:id/ativo` | OPERADOR | `{ ativo }`: ativa/desativa |
+| DELETE | `/filmes/:id` | OPERADOR | Só sem sessões (senão 422 `FILME_COM_SESSOES`) |
+| GET | `/salas`, `/salas/:id` | OPERADOR | Lista / detalhe com o layout de assentos |
+| POST | `/salas` | OPERADOR | `{ nome, assentosPorFila, filas \| qtdFilas, assentosPcd?, assentosVip? }`: gera os assentos |
+| PUT | `/salas/:id` | OPERADOR | `{ nome, ativa, estrutura? }`: estrutura bloqueada com sessões |
+| GET | `/sessoes?filmeId=&salaId=&data=&incluirPassadas=&incluirCanceladas=` | público | Por padrão, só futuras e não canceladas |
+| GET | `/sessoes/:id` | público | Detalhe com `assentosLivres` |
+| POST | `/sessoes` | OPERADOR | `{ filmeId, salaId, dataHora, preco }` |
+| PATCH | `/sessoes/:id/cancelar` | OPERADOR | Só sem ingressos vendidos |
+
+### Regras de negócio implementadas (services)
+
+**Contas**
+- O cadastro público nunca aceita `papel`: o body é estrito, e campos extras dão 400.
+- O login responde sempre "E-mail ou senha inválidos.", com tempo constante.
+
+**Salas (regra 8)**
+- O service gera os assentos em uma transação.
+- PCD/VIP precisam existir no layout.
+- A estrutura não muda com sessões futuras (`SALA_COM_SESSOES_FUTURAS`) nem com histórico (`SALA_COM_HISTORICO`).
+
+**Sessões (regra 7)**
+- Precisam estar no futuro, com filme e sala ativos e uma sala com assentos.
+- Não podem se sobrepor na mesma sala, considerando a duração do filme + 15 min de limpeza (`SESSAO_SOBREPOSTA`).
+- A checagem e o INSERT rodam na mesma transação, com a sala travada por `SELECT ... FOR UPDATE`.
+- Cancelar: na mesma transação, cancela as reservas pendentes e só então confere os ingressos. Se houver venda, `SESSAO_COM_INGRESSOS` e rollback.
 
 ## Arquitetura em camadas
 
@@ -100,23 +152,23 @@ Exemplo real nesta base: `GET /health` → `health.routes.ts` → `healthControl
 
 ### Transações
 
-Quem decide o que precisa ser atômico é o **service**; quem executa é o **repository**. O service chama `repository.emTransacao(async (tx) => ...)` e repassa o cliente de transação (`Prisma.TransactionClient`) para os métodos do repository que participam da operação:
+Quem decide o que precisa ser atômico é o **service**; quem executa é o **repository**. O service chama `emTransacao(async (tx) => ...)` (`src/repositories/transacao.ts`) e repassa o cliente de transação (`tx`) como último argumento dos métodos do repository que participam da operação. Fora de uma transação, esse argumento é omitido e o repository usa o cliente padrão:
 
 ```ts
-// service (decide e orquestra)
-await reservaRepository.emTransacao(async (tx) => {
-  const reserva = await reservaRepository.criar(tx, dados);
-  const afetados = await sessaoAssentoRepository.reservar(tx, sessaoId, assentoIds, reserva.id, expiraEm);
-  if (afetados !== assentoIds.length) {
-    throw new Conflito('ASSENTO_INDISPONIVEL', 'Um ou mais assentos não estão disponíveis.'); // rollback
-  }
+// service (decide e orquestra) – src/services/sala.service.ts
+const salaId = await emTransacao(async (tx) => {
+  const sala = await salaRepository.criar(nome, tx);
+  await salaRepository.criarAssentos(sala.id, assentos, tx);
+  return sala.id;
 });
 
-// repository (executa)
-emTransacao<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+// repository (executa) – src/repositories/transacao.ts
+export function emTransacao<T>(fn: (tx: ClienteBanco) => Promise<T>): Promise<T> {
   return prisma.$transaction(fn);
 }
 ```
+
+Quando a decisão depende do estado atual, o service trava a linha antes de decidir, com `SELECT ... FOR UPDATE` no repository. É o que acontece ao criar uma sessão (trava a sala) e ao cancelar uma sessão (trava a sessão).
 
 Lançar um erro dentro do callback faz o Prisma dar **rollback** de tudo.
 
