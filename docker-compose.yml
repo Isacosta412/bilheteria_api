@@ -1,0 +1,27 @@
+# PostgreSQL 16 para desenvolvimento local.
+# Uso: docker compose up -d   (parar: docker compose down; apagar os dados: docker compose down -v)
+name: bilheteria
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bilheteria-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bilheteria
+      POSTGRES_PASSWORD: bilheteria
+      POSTGRES_DB: bilheteria
+      TZ: America/Sao_Paulo
+    # Porta 5433 no host para não conflitar com um PostgreSQL instalado localmente (que usa a 5432).
+    ports:
+      - "5433:5432"
+    volumes:
+      - bilheteria-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bilheteria -d bilheteria"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  bilheteria-pgdata:

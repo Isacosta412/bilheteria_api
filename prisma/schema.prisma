@@ -1,0 +1,235 @@
+// Schema do Prisma – bilheteria-api
+// Models em PascalCase/camelCase; tabelas, colunas e enums em snake_case no banco (@@map/@map).
+// CHECKs, triggers, procedure e view ficam em migrations SQL escritas à mão (constraints_check, B03).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum Papel {
+  CLIENTE
+  OPERADOR
+
+  @@map("papel")
+}
+
+enum Classificacao {
+  LIVRE
+  DEZ
+  DOZE
+  CATORZE
+  DEZESSEIS
+  DEZOITO
+
+  @@map("classificacao")
+}
+
+enum TipoAssento {
+  PADRAO
+  PCD
+  VIP
+
+  @@map("tipo_assento")
+}
+
+enum StatusAssento {
+  LIVRE
+  RESERVADO
+  VENDIDO
+
+  @@map("status_assento")
+}
+
+enum StatusReserva {
+  PENDENTE
+  PAGA
+  EXPIRADA
+  CANCELADA
+
+  @@map("status_reserva")
+}
+
+enum CanalReserva {
+  APP
+  BALCAO
+
+  @@map("canal_reserva")
+}
+
+enum MetodoPagamento {
+  PIX
+  CARTAO
+  DINHEIRO
+
+  @@map("metodo_pagamento")
+}
+
+// ─── Models ─────────────────────────────────────────────────────────────────
+
+model Usuario {
+  id           Int      @id @default(autoincrement())
+  nome         String   @db.VarChar(120)
+  email        String   @unique @db.VarChar(255)
+  senhaHash    String   @map("senha_hash") @db.VarChar(255)
+  papel        Papel    @default(CLIENTE)
+  criadoEm     DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  reservas           Reserva[]
+  ingressosValidados Ingresso[] @relation("IngressoValidadoPor")
+
+  @@map("usuario")
+}
+
+model Filme {
+  id             Int           @id @default(autoincrement())
+  titulo         String        @db.VarChar(200)
+  sinopse        String        @db.Text
+  duracaoMinutos Int           @map("duracao_minutos")
+  classificacao  Classificacao
+  genero         String        @db.VarChar(60)
+  posterUrl      String?       @map("poster_url") @db.VarChar(500)
+  ativo          Boolean       @default(true)
+  criadoEm       DateTime      @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm   DateTime      @default(now()) @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  sessoes Sessao[]
+
+  @@map("filme")
+}
+
+model Sala {
+  id           Int      @id @default(autoincrement())
+  nome         String   @unique @db.VarChar(60)
+  ativa        Boolean  @default(true)
+  criadoEm     DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  assentos Assento[]
+  sessoes  Sessao[]
+
+  @@map("sala")
+}
+
+model Assento {
+  id     Int         @id @default(autoincrement())
+  salaId Int         @map("sala_id")
+  fila   String      @db.VarChar(2)
+  numero Int
+  tipo   TipoAssento @default(PADRAO)
+
+  // Cascade: excluir uma sala sem sessões leva os assentos junto (sessao → sala é Restrict).
+  sala           Sala            @relation(fields: [salaId], references: [id], onDelete: Cascade)
+  sessaoAssentos SessaoAssento[]
+
+  @@unique([salaId, fila, numero])
+  @@map("assento")
+}
+
+model Sessao {
+  id           Int      @id @default(autoincrement())
+  filmeId      Int      @map("filme_id")
+  salaId       Int      @map("sala_id")
+  dataHora     DateTime @map("data_hora") @db.Timestamptz(3)
+  preco        Decimal  @db.Decimal(10, 2)
+  cancelada    Boolean  @default(false)
+  criadoEm     DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  filme    Filme           @relation(fields: [filmeId], references: [id], onDelete: Restrict)
+  sala     Sala            @relation(fields: [salaId], references: [id], onDelete: Restrict)
+  assentos SessaoAssento[]
+  reservas Reserva[]
+
+  @@index([salaId, dataHora])
+  @@index([filmeId])
+  // Índice parcial idx_sessao_data_hora_ativas (WHERE cancelada = false): criado só na migration
+  // sql_regras_banco. Não declare aqui: o Prisma 6 ignora índices parciais e tentaria recriá-lo.
+  @@map("sessao")
+}
+
+model SessaoAssento {
+  id           Int           @id @default(autoincrement())
+  sessaoId     Int           @map("sessao_id")
+  assentoId    Int           @map("assento_id")
+  status       StatusAssento @default(LIVRE)
+  reservaId    Int?          @map("reserva_id")
+  reservadoAte DateTime?     @map("reservado_ate") @db.Timestamptz(3)
+
+  // Cascade: as linhas são geradas pela trigger para a sessão; se houver ingresso, ingresso → sessao_assento (Restrict) bloqueia.
+  sessao   Sessao    @relation(fields: [sessaoId], references: [id], onDelete: Cascade)
+  assento  Assento   @relation(fields: [assentoId], references: [id], onDelete: Restrict)
+  reserva  Reserva?  @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  ingresso Ingresso?
+
+  @@unique([sessaoId, assentoId])
+  @@index([sessaoId, status])
+  @@index([reservaId])
+  @@map("sessao_assento")
+}
+
+model Reserva {
+  id           Int           @id @default(autoincrement())
+  // Dono da reserva; na venda de balcão é o operador.
+  usuarioId    Int           @map("usuario_id")
+  sessaoId     Int           @map("sessao_id")
+  status       StatusReserva @default(PENDENTE)
+  canal        CanalReserva  @default(APP)
+  total        Decimal       @db.Decimal(10, 2)
+  expiraEm     DateTime      @map("expira_em") @db.Timestamptz(3)
+  criadoEm     DateTime      @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime      @default(now()) @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  usuario   Usuario         @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  // Cascade: excluir sessão sem vendas remove as reservas; com venda, pagamento/ingresso (Restrict) bloqueiam.
+  sessao    Sessao          @relation(fields: [sessaoId], references: [id], onDelete: Cascade)
+  assentos  SessaoAssento[]
+  pagamento Pagamento?
+  ingressos Ingresso[]
+
+  @@index([status, expiraEm])
+  @@index([usuarioId])
+  // Índice extra da migration sql_regras_banco (declarado aqui para o Prisma não removê-lo).
+  // O parcial idx_reserva_pendente_expira_em (WHERE status = 'PENDENTE') existe só na migration:
+  // o Prisma 6 ignora índices parciais, então não o declare aqui.
+  @@index([sessaoId], map: "idx_reserva_sessao_id")
+  @@map("reserva")
+}
+
+model Pagamento {
+  id        Int             @id @default(autoincrement())
+  reservaId Int             @unique @map("reserva_id")
+  metodo    MetodoPagamento
+  valor     Decimal         @db.Decimal(10, 2)
+  pagoEm    DateTime        @default(now()) @map("pago_em") @db.Timestamptz(3)
+
+  reserva Reserva @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+
+  // Índice extra da migration sql_regras_banco (relatórios de receita por período).
+  @@index([pagoEm], map: "idx_pagamento_pago_em")
+  @@map("pagamento")
+}
+
+model Ingresso {
+  id              Int       @id @default(autoincrement())
+  codigo          String    @unique @db.VarChar(16)
+  reservaId       Int       @map("reserva_id")
+  sessaoAssentoId Int       @unique @map("sessao_assento_id")
+  utilizadoEm     DateTime? @map("utilizado_em") @db.Timestamptz(3)
+  validadoPorId   Int?      @map("validado_por_id")
+  emitidoEm       DateTime  @default(now()) @map("emitido_em") @db.Timestamptz(3)
+
+  reserva       Reserva       @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  sessaoAssento SessaoAssento @relation(fields: [sessaoAssentoId], references: [id], onDelete: Restrict)
+  validadoPor   Usuario?      @relation("IngressoValidadoPor", fields: [validadoPorId], references: [id], onDelete: Restrict)
+
+  @@index([reservaId])
+  @@map("ingresso")
+}

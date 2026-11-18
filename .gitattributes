@@ -1,0 +1,4 @@
+# Mantém LF em todos os arquivos de texto, em qualquer sistema operacional.
+# Importante para as migrations: o Prisma guarda o checksum de cada migration.sql,
+# e uma conversão para CRLF no checkout faria o arquivo parecer modificado.
+* text=auto eol=lf
