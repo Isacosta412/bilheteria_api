@@ -107,6 +107,9 @@ Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 
 | GET | `/ingressos/:codigo` | dono ou OPERADOR | Detalhe do ingresso |
 | POST | `/ingressos/validar` | OPERADOR | `{ codigo }`: validação na entrada (uso único) |
 | POST | `/balcao/vendas` | OPERADOR | `{ sessaoId, assentoIds, metodo: DINHEIRO \| CARTAO \| PIX, nomeComprador? }`: reserva + pagamento |
+| GET | `/relatorios/sessoes?inicio=&fim=&filmeId=&salaId=` | OPERADOR | Ocupação e receita por sessão (view) + totais com ocupação ponderada |
+| GET | `/relatorios/vendas?inicio=&fim=&agrupar=dia\|filme\|metodo` | OPERADOR | Vendas e receita agrupadas, separadas por canal (APP × BALCÃO) |
+| GET | `/relatorios/sessoes.csv?…` | OPERADOR | O relatório de sessões em CSV para o Excel pt-BR (`;`, decimal com vírgula) |
 
 ### Regras de negócio implementadas (services)
 
