@@ -32,6 +32,17 @@ export interface NovaReserva {
   total: Prisma.Decimal;
   expiraEm: Date;
   canal: CanalReserva;
+  nomeComprador: string | null;
+}
+
+export interface ReservaParaPagamento {
+  id: number;
+  usuarioId: number;
+  status: StatusReserva;
+  expiraEm: Date;
+  total: Prisma.Decimal;
+  precoSessao: Prisma.Decimal;
+  dataHoraSessao: Date;
 }
 
 export interface ReservaTravada {
@@ -105,6 +116,49 @@ export const reservaRepository = {
 
   async marcarCancelada(id: number, cliente: ClienteBanco): Promise<void> {
     await cliente.reserva.update({ where: { id }, data: { status: StatusReserva.CANCELADA } });
+  },
+
+  /**
+   * Trava a reserva para o pagamento (SELECT ... FOR UPDATE OF r) e traz o preço e o horário da
+   * sessão. Um segundo pagamento (ou cancelamento) simultâneo da mesma reserva espera este lock.
+   */
+  async travarParaPagamento(id: number, cliente: ClienteBanco): Promise<ReservaParaPagamento | null> {
+    const linhas = await cliente.$queryRaw<
+      {
+        id: number;
+        usuario_id: number;
+        status: StatusReserva;
+        expira_em: Date;
+        total: Prisma.Decimal;
+        preco: Prisma.Decimal;
+        data_hora: Date;
+      }[]
+    >(Prisma.sql`
+      SELECT r.id, r.usuario_id, r.status, r.expira_em, r.total, s.preco, s.data_hora
+        FROM reserva r
+        JOIN sessao s ON s.id = r.sessao_id
+       WHERE r.id = ${id}
+         FOR UPDATE OF r`);
+    const l = linhas[0];
+    return l
+      ? {
+          id: l.id,
+          usuarioId: l.usuario_id,
+          status: l.status,
+          expiraEm: l.expira_em,
+          total: l.total,
+          precoSessao: l.preco,
+          dataHoraSessao: l.data_hora,
+        }
+      : null;
+  },
+
+  async marcarPaga(id: number, cliente: ClienteBanco): Promise<void> {
+    await cliente.reserva.update({ where: { id }, data: { status: StatusReserva.PAGA } });
+  },
+
+  async marcarExpirada(id: number, cliente: ClienteBanco): Promise<void> {
+    await cliente.reserva.update({ where: { id }, data: { status: StatusReserva.EXPIRADA } });
   },
 
   /** Chama a stored procedure do banco (migration sql_regras_banco). Devolve quantas reservas expiraram. */

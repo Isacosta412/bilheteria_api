@@ -176,16 +176,18 @@ model SessaoAssento {
 }
 
 model Reserva {
-  id           Int           @id @default(autoincrement())
+  id            Int           @id @default(autoincrement())
   // Dono da reserva; na venda de balcão é o operador.
-  usuarioId    Int           @map("usuario_id")
-  sessaoId     Int           @map("sessao_id")
-  status       StatusReserva @default(PENDENTE)
-  canal        CanalReserva  @default(APP)
-  total        Decimal       @db.Decimal(10, 2)
-  expiraEm     DateTime      @map("expira_em") @db.Timestamptz(3)
-  criadoEm     DateTime      @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm DateTime      @default(now()) @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  usuarioId     Int           @map("usuario_id")
+  sessaoId      Int           @map("sessao_id")
+  status        StatusReserva @default(PENDENTE)
+  canal         CanalReserva  @default(APP)
+  total         Decimal       @db.Decimal(10, 2)
+  expiraEm      DateTime      @map("expira_em") @db.Timestamptz(3)
+  // Venda no balcão: nome informado pelo comprador (opcional).
+  nomeComprador String?       @map("nome_comprador") @db.VarChar(120)
+  criadoEm      DateTime      @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm  DateTime      @default(now()) @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
   usuario   Usuario         @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
   // Cascade: excluir sessão sem vendas remove as reservas; com venda, pagamento/ingresso (Restrict) bloqueiam.

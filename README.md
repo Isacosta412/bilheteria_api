@@ -64,6 +64,7 @@ Confira o arquivo .env (use o .env.example como modelo).
 | `JWT_EXPIRES_IN` | Validade do token (ex.: `1d`, `12h`) |
 | `RESERVA_MINUTOS` | Tempo até a reserva pendente expirar (padrão 10) |
 | `CORS_ORIGIN` | Origens permitidas, separadas por vírgula |
+| `VALIDACAO_ANTECEDENCIA_MINUTOS` | A partir de quantos minutos antes do início a entrada pode ser validada (padrão 60; vale até o fim do filme). Para uma demonstração com sessão futura, use um valor alto |
 | `SEED_OPERADOR_NOME`, `SEED_OPERADOR_EMAIL`, `SEED_OPERADOR_SENHA` | Operador criado pelo `npm run seed` (lidas só pelo seed) |
 
 ### Testes e banco de teste
@@ -101,6 +102,11 @@ Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 
 | GET | `/reservas/minhas` | logado | Reservas do usuário |
 | GET | `/reservas/:id` | dono ou OPERADOR | Detalhe (404 para outros clientes) |
 | DELETE | `/reservas/:id` | dono ou OPERADOR | Cancela uma reserva PENDENTE e libera os assentos |
+| POST | `/reservas/:id/pagamento` | dono | `{ metodo: PIX \| CARTAO }` → `{ reserva, ingressos }` (pagamento simulado) |
+| GET | `/ingressos/meus` | logado | Ingressos agrupados por sessão, com status `VALIDO` / `UTILIZADO` / `SESSAO_ENCERRADA` |
+| GET | `/ingressos/:codigo` | dono ou OPERADOR | Detalhe do ingresso |
+| POST | `/ingressos/validar` | OPERADOR | `{ codigo }`: validação na entrada (uso único) |
+| POST | `/balcao/vendas` | OPERADOR | `{ sessaoId, assentoIds, metodo: DINHEIRO \| CARTAO \| PIX, nomeComprador? }`: reserva + pagamento |
 
 ### Regras de negócio implementadas (services)
 
@@ -126,6 +132,26 @@ Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 
 - Um cliente só pode ter 1 reserva pendente por sessão (`RESERVA_PENDENTE_EXISTENTE`).
 - Uma reserva vencida já aparece como livre no mapa e como `EXPIRADA` nas consultas, mesmo antes do job.
 - O cliente cancela a própria reserva pendente.
+
+**Pagamento (regra 4)**, em `pagamentoService`, tudo em uma transação:
+1. trava a reserva (`SELECT ... FOR UPDATE`) e confere o dono, o status e o prazo;
+2. cria o pagamento com valor = total da reserva;
+3. muda os assentos de `RESERVADO` para `VENDIDO`, conferindo a contagem;
+4. emite 1 ingresso por assento, com código de 10 caracteres sem `0/O/1/I` (`src/services/codigoIngresso.ts`);
+5. marca a reserva como `PAGA`.
+
+Casos especiais:
+- **Dois pagamentos simultâneos:** o segundo espera o lock e recebe 409 `RESERVA_JA_PAGA`.
+- **Reserva vencida:** a transação a marca `EXPIRADA` e libera os assentos. O 422 `RESERVA_EXPIRADA` só é lançado depois do COMMIT, para a expiração ficar gravada.
+- **Fora de produção:** `simularFalha: true` lança um erro depois de emitir os ingressos, para demonstrar que o rollback desfaz tudo.
+
+**Venda no balcão (regra 9):** `balcaoService.vender` chama, na **mesma transação**, os mesmos núcleos do app, `reservarNaTransacao` e `pagarNaTransacao`. Não há lógica de concorrência duplicada. Se um assento estiver ocupado, nada é cobrado.
+
+**Validação na entrada (regra 6):** a ordem é:
+1. código inexistente → 404 `INGRESSO_INVALIDO`;
+2. já usado → 409 `INGRESSO_JA_UTILIZADO`, informando quando;
+3. fora da janela → 422 `INGRESSO_FORA_DO_HORARIO`. A janela vai de `VALIDACAO_ANTECEDENCIA_MINUTOS` antes do início até o fim do filme;
+4. o **UPDATE condicional** `SET utilizado_em = now() WHERE codigo = $c AND utilizado_em IS NULL`. Se duas validações chegam ao mesmo tempo, a segunda afeta 0 linhas e recebe 409.
 
 ## Concorrência
 

@@ -92,6 +92,27 @@ export const sessaoAssentoRepository = {
     return linhas.map((l) => ({ assentoId: l.assento.id, fila: l.assento.fila, numero: l.assento.numero, tipo: l.assento.tipo }));
   },
 
+  /**
+   * Pagamento: RESERVADO → VENDIDO para os assentos da reserva. Devolve quantas linhas mudou;
+   * o service confere se bate com a quantidade comprada.
+   */
+  marcarVendidos(reservaId: number, cliente: ClienteBanco): Promise<number> {
+    return cliente.$executeRaw(Prisma.sql`
+      UPDATE sessao_assento
+         SET status = 'VENDIDO', reservado_ate = NULL
+       WHERE reserva_id = ${reservaId} AND status = 'RESERVADO'`);
+  },
+
+  /** Ids de sessao_assento VENDIDO da reserva (um ingresso para cada). */
+  async listarVendidosDaReserva(reservaId: number, cliente: ClienteBanco): Promise<number[]> {
+    const linhas = await cliente.sessaoAssento.findMany({
+      where: { reservaId, status: 'VENDIDO' },
+      select: { id: true },
+      orderBy: { assentoId: 'asc' },
+    });
+    return linhas.map((l) => l.id);
+  },
+
   /** Devolve para LIVRE os assentos ainda RESERVADO pela reserva. */
   liberarDaReserva(reservaId: number, cliente: ClienteBanco): Promise<number> {
     return cliente.$executeRaw(Prisma.sql`

@@ -19,6 +19,9 @@ const envSchema = z.object({
     .string()
     .regex(/^\d+[smhd]?$/, { message: 'use um número de segundos ou formatos como 15m, 12h, 1d' }),
   RESERVA_MINUTOS: z.coerce.number().int().positive().default(10),
+  // Quantos minutos antes do início da sessão a entrada já pode ser validada (padrão 60).
+  // Para uma demonstração, um valor alto (ex.: 100000) libera a validação de qualquer sessão futura.
+  VALIDACAO_ANTECEDENCIA_MINUTOS: z.coerce.number().int().min(0).default(60),
   CORS_ORIGIN: z
     .string()
     .min(1)

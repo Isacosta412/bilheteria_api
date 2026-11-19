@@ -12,6 +12,8 @@ export interface ReservaDTO {
   /** Status efetivo: uma PENDENTE com prazo vencido aparece como EXPIRADA. */
   status: StatusReserva;
   canal: CanalReserva;
+  /** Só nas vendas de balcão, quando o operador informa. */
+  nomeComprador: string | null;
   /** Em reais, calculado no servidor: quantidade × preço da sessão. */
   total: string;
   expiraEm: string;

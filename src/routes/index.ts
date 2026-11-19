@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { authRoutes } from './auth.routes';
+import { balcaoRoutes } from './balcao.routes';
+import { ingressoRoutes } from './ingresso.routes';
 import { filmeRoutes } from './filme.routes';
 import { healthRoutes } from './health.routes';
 import { reservaRoutes } from './reserva.routes';
@@ -17,3 +19,5 @@ routes.use('/filmes', filmeRoutes);
 routes.use('/salas', salaRoutes);
 routes.use('/sessoes', sessaoRoutes);
 routes.use('/reservas', reservaRoutes);
+routes.use('/ingressos', ingressoRoutes);
+routes.use('/balcao', balcaoRoutes);
