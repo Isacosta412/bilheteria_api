@@ -1,4 +1,4 @@
-import type { Classificacao } from '@prisma/client';
+import type { Classificacao, FormatoSessao, IdiomaSessao } from '@prisma/client';
 
 export interface SessaoDTO {
   id: number;
@@ -7,6 +7,10 @@ export interface SessaoDTO {
   terminoPrevisto: string;
   /** Em reais, com 2 casas: "30.00". */
   preco: string;
+  /** Preço da meia-entrada (metade), em reais. */
+  precoMeia: string;
+  formato: FormatoSessao;
+  idioma: IdiomaSessao;
   cancelada: boolean;
   /** Livres agora: LIVRE + RESERVADO com prazo vencido. */
   assentosLivres: number;

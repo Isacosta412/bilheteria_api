@@ -1,4 +1,4 @@
-import { MetodoPagamento, StatusReserva } from '@prisma/client';
+import { MetodoPagamento, StatusReserva, TipoIngresso } from '@prisma/client';
 import { AppError, Conflito, NaoEncontrado, RegraNegocio } from '../errors';
 import { ingressoRepository } from '../repositories/ingresso.repository';
 import { pagamentoRepository } from '../repositories/pagamento.repository';
@@ -8,6 +8,7 @@ import { emTransacao, type ClienteBanco } from '../repositories/transacao';
 import type { PagarReservaEntrada } from '../schemas/pagamento.schema';
 import type { UsuarioAutenticado } from '../types/express';
 import type { CompraDTO } from '../types/ingresso';
+import { precoMeia } from '../utils/precos';
 import { gerarCodigoIngresso } from './codigoIngresso';
 import { paraIngressoDTO } from './ingresso.service';
 import { buscarReservaDTO } from './reserva.service';
@@ -86,8 +87,10 @@ export async function pagarNaTransacao(
   // 3
   await pagamentoRepository.criar({ reservaId: reserva.id, metodo, valor: reserva.total }, tx);
 
-  // 4
-  const quantidade = reserva.total.div(reserva.precoSessao).toNumber();
+  // 4: quantidade = meias + inteiras, deduzida do total (que o servidor calculou na reserva)
+  const valorMeia = precoMeia(reserva.precoSessao);
+  const quantidade =
+    reserva.total.sub(valorMeia.mul(reserva.qtdMeia)).div(reserva.precoSessao).toNumber() + reserva.qtdMeia;
   const vendidos = await sessaoAssentoRepository.marcarVendidos(reserva.id, tx);
   if (!Number.isInteger(quantidade) || vendidos !== quantidade) {
     throw new Conflito(
@@ -97,11 +100,20 @@ export async function pagarNaTransacao(
     );
   }
 
-  // 5
+  // 5: os primeiros `qtdMeia` assentos (por ordem de assento) saem como meia, os demais como inteira
   const sessaoAssentoIds = await sessaoAssentoRepository.listarVendidosDaReserva(reserva.id, tx);
   const codigos = await gerarCodigosUnicos(sessaoAssentoIds.length, tx);
   await ingressoRepository.criarVarios(
-    sessaoAssentoIds.map((sessaoAssentoId, i) => ({ codigo: codigos[i]!, reservaId: reserva.id, sessaoAssentoId })),
+    sessaoAssentoIds.map((sessaoAssentoId, i) => {
+      const meia = i < reserva.qtdMeia;
+      return {
+        codigo: codigos[i]!,
+        reservaId: reserva.id,
+        sessaoAssentoId,
+        tipo: meia ? TipoIngresso.MEIA : TipoIngresso.INTEIRA,
+        valor: meia ? valorMeia : reserva.precoSessao,
+      };
+    }),
     tx,
   );
 

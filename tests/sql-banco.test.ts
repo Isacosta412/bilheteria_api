@@ -215,7 +215,7 @@ describe('view vw_relatorio_sessoes', () => {
         data: { status: 'VENDIDO', reservaId: paga.id },
       });
       await tx.ingresso.createMany({
-        data: vendidos.map((id, i) => ({ codigo: `T${String(Date.now()).slice(-8)}${i}`, reservaId: paga.id, sessaoAssentoId: id })),
+        data: vendidos.map((id, i) => ({ codigo: `T${String(Date.now()).slice(-8)}${i}`, reservaId: paga.id, sessaoAssentoId: id, valor: new Prisma.Decimal('30.00') })),
       });
 
       // 1 reservado válido (A3) e 1 reservado vencido (A1), que conta como livre

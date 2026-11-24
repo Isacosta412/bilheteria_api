@@ -6,7 +6,8 @@ import { salaRepository } from '../repositories/sala.repository';
 import { sessaoRepository, type SessaoComDetalhes } from '../repositories/sessao.repository';
 import { sessaoAssentoRepository, type LinhaMapa } from '../repositories/sessaoAssento.repository';
 import { emTransacao } from '../repositories/transacao';
-import type { CriarSessaoEntrada, ListarSessoesQuery } from '../schemas/sessao.schema';
+import type { AtualizarSessaoEntrada, CriarSessaoEntrada, ListarSessoesQuery } from '../schemas/sessao.schema';
+import { precoMeia } from '../utils/precos';
 import type { FilaMapaDTO, MapaAssentosDTO } from '../types/mapa';
 import type { SessaoDTO } from '../types/sessao';
 import { compararFilas } from '../utils/filas';
@@ -27,6 +28,9 @@ function paraSessaoDTO(sessao: SessaoComDetalhes): SessaoDTO {
     dataHora: sessao.dataHora.toISOString(),
     terminoPrevisto: somarMinutos(sessao.dataHora, sessao.filme.duracaoMinutos).toISOString(),
     preco: sessao.preco.toFixed(2),
+    precoMeia: precoMeia(sessao.preco).toFixed(2),
+    formato: sessao.formato,
+    idioma: sessao.idioma,
     cancelada: sessao.cancelada,
     assentosLivres: sessao._count.assentos,
     filme: sessao.filme,
@@ -173,12 +177,27 @@ export const sessaoService = {
       }
 
       return sessaoRepository.criar(
-        { filmeId: filme.id, salaId: sala.id, dataHora: inicio, preco: new Prisma.Decimal(entrada.preco.toFixed(2)) },
+        {
+          filmeId: filme.id,
+          salaId: sala.id,
+          dataHora: inicio,
+          preco: new Prisma.Decimal(entrada.preco.toFixed(2)),
+          formato: entrada.formato,
+          idioma: entrada.idioma,
+        },
         tx,
       );
     });
 
     return buscarOuFalhar(sessaoId);
+  },
+
+  /** Muda o formato (2D/3D) e/ou o idioma (dublado/legendado) da sessão. */
+  async atualizar(id: number, entrada: AtualizarSessaoEntrada): Promise<SessaoDTO> {
+    if (!(await sessaoRepository.atualizar(id, entrada))) {
+      throw new NaoEncontrado('Sessão não encontrada.', 'SESSAO_NAO_ENCONTRADA');
+    }
+    return buscarOuFalhar(id);
   },
 
   /**

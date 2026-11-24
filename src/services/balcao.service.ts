@@ -18,7 +18,7 @@ export const balcaoService = {
       const reservaId = await reservarNaTransacao(
         tx,
         operador,
-        { sessaoId: entrada.sessaoId, assentoIds: entrada.assentoIds },
+        { sessaoId: entrada.sessaoId, assentoIds: entrada.assentoIds, meias: entrada.meias },
         { canal: CanalReserva.BALCAO, nomeComprador: entrada.nomeComprador },
       );
       return pagarNaTransacao(tx, reservaId, entrada.metodo);

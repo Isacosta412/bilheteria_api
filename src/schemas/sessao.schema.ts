@@ -1,3 +1,4 @@
+import { FormatoSessao, IdiomaSessao } from '@prisma/client';
 import { z } from 'zod';
 import { booleanoQuery, dataHoraIso, diaIso, dinheiro } from './comum';
 
@@ -10,8 +11,19 @@ export const criarSessaoSchema = z.strictObject({
   salaId: idSchema('a sala'),
   dataHora: dataHoraIso,
   preco: dinheiro,
+  formato: z.enum(FormatoSessao, { message: 'use DOIS_D ou TRES_D' }).default(FormatoSessao.DOIS_D),
+  idioma: z.enum(IdiomaSessao, { message: 'use DUBLADO ou LEGENDADO' }).default(IdiomaSessao.DUBLADO),
 });
 export type CriarSessaoEntrada = z.infer<typeof criarSessaoSchema>;
+
+/** Troca o formato e/ou o idioma de uma sessão (não mexe em horário, sala nem preço). */
+export const atualizarSessaoSchema = z
+  .strictObject({
+    formato: z.enum(FormatoSessao, { message: 'use DOIS_D ou TRES_D' }).optional(),
+    idioma: z.enum(IdiomaSessao, { message: 'use DUBLADO ou LEGENDADO' }).optional(),
+  })
+  .refine((d) => d.formato !== undefined || d.idioma !== undefined, { message: 'informe o formato ou o idioma' });
+export type AtualizarSessaoEntrada = z.infer<typeof atualizarSessaoSchema>;
 
 const idQuery = z.coerce.number().int().positive().optional();
 

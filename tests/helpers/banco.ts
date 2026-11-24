@@ -97,6 +97,11 @@ export async function venderUmAssento(sessaoId: number, usuarioId: number): Prom
   });
   await prisma.sessaoAssento.update({ where: { id: assento.id }, data: { status: 'VENDIDO', reservaId: reserva.id } });
   await prisma.ingresso.create({
-    data: { codigo: `TST${String(proximo()).padStart(6, '0')}`, reservaId: reserva.id, sessaoAssentoId: assento.id },
+    data: {
+      codigo: `TST${String(proximo()).padStart(6, '0')}`,
+      reservaId: reserva.id,
+      sessaoAssentoId: assento.id,
+      valor: new Prisma.Decimal('30.00'),
+    },
   });
 }

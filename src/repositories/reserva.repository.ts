@@ -6,6 +6,9 @@ const comDetalhes = {
     select: {
       id: true,
       dataHora: true,
+      preco: true,
+      formato: true,
+      idioma: true,
       filme: { select: { titulo: true } },
       sala: { select: { nome: true } },
     },
@@ -30,6 +33,7 @@ export interface NovaReserva {
   usuarioId: number;
   sessaoId: number;
   total: Prisma.Decimal;
+  qtdMeia: number;
   expiraEm: Date;
   canal: CanalReserva;
   nomeComprador: string | null;
@@ -41,6 +45,7 @@ export interface ReservaParaPagamento {
   status: StatusReserva;
   expiraEm: Date;
   total: Prisma.Decimal;
+  qtdMeia: number;
   precoSessao: Prisma.Decimal;
   dataHoraSessao: Date;
 }
@@ -130,11 +135,12 @@ export const reservaRepository = {
         status: StatusReserva;
         expira_em: Date;
         total: Prisma.Decimal;
+        qtd_meia: number;
         preco: Prisma.Decimal;
         data_hora: Date;
       }[]
     >(Prisma.sql`
-      SELECT r.id, r.usuario_id, r.status, r.expira_em, r.total, s.preco, s.data_hora
+      SELECT r.id, r.usuario_id, r.status, r.expira_em, r.total, r.qtd_meia, s.preco, s.data_hora
         FROM reserva r
         JOIN sessao s ON s.id = r.sessao_id
        WHERE r.id = ${id}
@@ -147,10 +153,15 @@ export const reservaRepository = {
           status: l.status,
           expiraEm: l.expira_em,
           total: l.total,
+          qtdMeia: l.qtd_meia,
           precoSessao: l.preco,
           dataHoraSessao: l.data_hora,
         }
       : null;
+  },
+
+  async alterarMeias(id: number, qtdMeia: number, total: Prisma.Decimal, cliente: ClienteBanco): Promise<void> {
+    await cliente.reserva.update({ where: { id }, data: { qtdMeia, total } });
   },
 
   async marcarPaga(id: number, cliente: ClienteBanco): Promise<void> {

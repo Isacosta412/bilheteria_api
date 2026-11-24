@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { lerBody, lerParams, lerQuery } from '../middlewares/validar';
 import type { IdParam } from '../schemas/comum';
-import type { CriarSessaoEntrada, ListarSessoesQuery } from '../schemas/sessao.schema';
+import type { AtualizarSessaoEntrada, CriarSessaoEntrada, ListarSessoesQuery } from '../schemas/sessao.schema';
 import { sessaoService } from '../services/sessao.service';
 import type { MapaAssentosDTO } from '../types/mapa';
 import type { SessaoDTO } from '../types/sessao';
@@ -21,6 +21,10 @@ export const sessaoController = {
 
   async criar(req: Request, res: Response<SessaoDTO>): Promise<void> {
     res.status(201).json(await sessaoService.criar(lerBody<CriarSessaoEntrada>(req)));
+  },
+
+  async atualizar(req: Request, res: Response<SessaoDTO>): Promise<void> {
+    res.json(await sessaoService.atualizar(lerParams<IdParam>(req).id, lerBody<AtualizarSessaoEntrada>(req)));
   },
 
   async cancelar(req: Request, res: Response<SessaoDTO>): Promise<void> {

@@ -96,9 +96,11 @@ Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 
 | GET | `/sessoes?filmeId=&salaId=&data=&incluirPassadas=&incluirCanceladas=` | público | Por padrão, só futuras e não canceladas |
 | GET | `/sessoes/:id` | público | Detalhe com `assentosLivres` |
 | GET | `/sessoes/:id/assentos` | público (login opcional) | Mapa: filas, status efetivo, `minhaReserva`, resumo |
-| POST | `/sessoes` | OPERADOR | `{ filmeId, salaId, dataHora, preco }` |
+| POST | `/sessoes` | OPERADOR | `{ filmeId, salaId, dataHora, preco, formato?, idioma? }` (`DOIS_D`/`TRES_D`, `DUBLADO`/`LEGENDADO`; padrão 2D dublado) |
+| PATCH | `/sessoes/:id` | OPERADOR | `{ formato?, idioma? }`: troca o formato e/ou o idioma |
 | PATCH | `/sessoes/:id/cancelar` | OPERADOR | Só sem ingressos vendidos |
-| POST | `/reservas` | CLIENTE/OPERADOR | `{ sessaoId, assentoIds }`: reserva temporária (`RESERVA_MINUTOS`) |
+| POST | `/reservas` | CLIENTE/OPERADOR | `{ sessaoId, assentoIds, meias? }`: reserva temporária (`RESERVA_MINUTOS`); `meias` = quantos são meia-entrada |
+| PATCH | `/reservas/:id/meias` | dono ou OPERADOR | `{ meias }`: escolhe inteira/meia numa reserva PENDENTE; o total é recalculado |
 | GET | `/reservas/minhas` | logado | Reservas do usuário |
 | GET | `/reservas/:id` | dono ou OPERADOR | Detalhe (404 para outros clientes) |
 | DELETE | `/reservas/:id` | dono ou OPERADOR | Cancela uma reserva PENDENTE e libera os assentos |
@@ -106,7 +108,7 @@ Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 
 | GET | `/ingressos/meus` | logado | Ingressos agrupados por sessão, com status `VALIDO` / `UTILIZADO` / `SESSAO_ENCERRADA` |
 | GET | `/ingressos/:codigo` | dono ou OPERADOR | Detalhe do ingresso |
 | POST | `/ingressos/validar` | OPERADOR | `{ codigo }`: validação na entrada (uso único) |
-| POST | `/balcao/vendas` | OPERADOR | `{ sessaoId, assentoIds, metodo: DINHEIRO \| CARTAO \| PIX, nomeComprador? }`: reserva + pagamento |
+| POST | `/balcao/vendas` | OPERADOR | `{ sessaoId, assentoIds, meias?, metodo: DINHEIRO \| CARTAO \| PIX, nomeComprador? }`: reserva + pagamento |
 | GET | `/relatorios/sessoes?inicio=&fim=&filmeId=&salaId=` | OPERADOR | Ocupação e receita por sessão (view) + totais com ocupação ponderada |
 | GET | `/relatorios/vendas?inicio=&fim=&agrupar=dia\|filme\|metodo` | OPERADOR | Vendas e receita agrupadas, separadas por canal (APP × BALCÃO) |
 | GET | `/relatorios/sessoes.csv?…` | OPERADOR | O relatório de sessões em CSV para o Excel pt-BR (`;`, decimal com vírgula) |
@@ -131,7 +133,7 @@ Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 
 **Reservas (regras 2, 3, 5 e 10)**
 - Cada reserva tem de 1 a 10 assentos, sem repetidos e todos da sala da sessão (`ASSENTO_INVALIDO`).
 - A sessão precisa estar no futuro e não cancelada.
-- O total (quantidade × preço) e o prazo são sempre calculados no servidor.
+- O total e o prazo são sempre calculados no servidor: inteiras × preço + meias × preço da meia (metade do preço, arredondada para centavos). Cada ingresso guarda o seu `tipo` (INTEIRA/MEIA) e o `valor` pago; a receita da `vw_relatorio_sessoes` soma esses valores.
 - Um cliente só pode ter 1 reserva pendente por sessão (`RESERVA_PENDENTE_EXISTENTE`).
 - Uma reserva vencida já aparece como livre no mapa e como `EXPIRADA` nas consultas, mesmo antes do job.
 - O cliente cancela a própria reserva pendente.

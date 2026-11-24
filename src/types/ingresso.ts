@@ -1,4 +1,4 @@
-import type { Classificacao, TipoAssento } from '@prisma/client';
+import type { Classificacao, FormatoSessao, IdiomaSessao, TipoAssento, TipoIngresso } from '@prisma/client';
 import type { ReservaDTO } from './reserva';
 
 export type StatusIngresso = 'VALIDO' | 'UTILIZADO' | 'SESSAO_ENCERRADA';
@@ -10,9 +10,13 @@ export interface IngressoDTO {
   fila: string;
   numero: number;
   tipo: TipoAssento;
+  /** Inteira ou meia-entrada. */
+  tipoIngresso: TipoIngresso;
+  /** Valor pago por este ingresso, em reais ("12.50"). */
+  valor: string;
   /** Início da sessão (repetido aqui para facilitar a exibição). */
   dataHora: string;
-  sessao: { id: number; dataHora: string; terminoPrevisto: string };
+  sessao: { id: number; dataHora: string; terminoPrevisto: string; formato: FormatoSessao; idioma: IdiomaSessao };
   filme: { id: number; titulo: string; classificacao: Classificacao };
   sala: { id: number; nome: string };
   emitidoEm: string;

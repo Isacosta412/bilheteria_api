@@ -4,7 +4,8 @@ import { Conflito, NaoEncontrado, RegraNegocio } from '../errors';
 import { reservaRepository, type ReservaComDetalhes } from '../repositories/reserva.repository';
 import { sessaoAssentoRepository, type AssentoDaReserva } from '../repositories/sessaoAssento.repository';
 import { emTransacao, type ClienteBanco } from '../repositories/transacao';
-import type { CriarReservaEntrada } from '../schemas/reserva.schema';
+import type { AlterarMeiasEntrada, CriarReservaEntrada } from '../schemas/reserva.schema';
+import { precoMeia, totalDaReserva } from '../utils/precos';
 import type { UsuarioAutenticado } from '../types/express';
 import type { ReservaDTO } from '../types/reserva';
 
@@ -23,6 +24,9 @@ export function paraReservaDTO(reserva: ReservaComDetalhes, agora = new Date(), 
     canal: reserva.canal,
     nomeComprador: reserva.nomeComprador,
     total: reserva.total.toFixed(2),
+    meias: reserva.qtdMeia,
+    precoInteira: reserva.sessao.preco.toFixed(2),
+    precoMeia: precoMeia(reserva.sessao.preco).toFixed(2),
     expiraEm: reserva.expiraEm.toISOString(),
     criadoEm: reserva.criadoEm.toISOString(),
     sessao: {
@@ -30,6 +34,8 @@ export function paraReservaDTO(reserva: ReservaComDetalhes, agora = new Date(), 
       dataHora: reserva.sessao.dataHora.toISOString(),
       filmeTitulo: reserva.sessao.filme.titulo,
       salaNome: reserva.sessao.sala.nome,
+      formato: reserva.sessao.formato,
+      idioma: reserva.sessao.idioma,
     },
     assentos:
       assentos ??
@@ -115,7 +121,8 @@ export async function reservarNaTransacao(
     {
       usuarioId: usuario.id,
       sessaoId: sessao.id,
-      total: sessao.preco.mul(assentoIds.length),
+      total: totalDaReserva(sessao.preco, assentoIds.length, entrada.meias),
+      qtdMeia: entrada.meias,
       expiraEm,
       canal: opcoes.canal,
       nomeComprador: opcoes.nomeComprador ?? null,
@@ -174,6 +181,35 @@ export const reservaService = {
       throw reservaNaoEncontrada();
     }
     return paraReservaDTO(reserva);
+  },
+
+  /**
+   * Escolha de inteira/meia no checkout: só na reserva PENDENTE e dentro do prazo, do próprio
+   * cliente (ou por operador). Trava a reserva (como o pagamento) e recalcula o total aqui.
+   */
+  async alterarMeias(usuario: UsuarioAutenticado, id: number, entrada: AlterarMeiasEntrada): Promise<ReservaDTO> {
+    await emTransacao(async (tx) => {
+      const reserva = await reservaRepository.travarParaPagamento(id, tx);
+      if (!reserva || !podeAcessar(usuario, reserva.usuarioId)) {
+        throw reservaNaoEncontrada();
+      }
+      const status = statusEfetivo(reserva, new Date());
+      if (status !== StatusReserva.PENDENTE) {
+        throw new RegraNegocio(
+          'RESERVA_NAO_PENDENTE',
+          `Só dá para trocar os ingressos de uma reserva pendente (esta está ${status.toLowerCase()}).`,
+          { status },
+        );
+      }
+      const quantidade = (await sessaoAssentoRepository.listarDaReserva(id, tx)).length;
+      if (entrada.meias > quantidade) {
+        throw new RegraNegocio('MEIAS_DEMAIS', 'A quantidade de meias não pode passar da quantidade de assentos.', {
+          assentos: quantidade,
+        });
+      }
+      await reservaRepository.alterarMeias(id, entrada.meias, totalDaReserva(reserva.precoSessao, quantidade, entrada.meias), tx);
+    });
+    return buscarReservaDTO(id);
   },
 
   /** Regra 10: cancela uma reserva PENDENTE (do próprio cliente, ou por um operador) e libera os assentos. */

@@ -63,6 +63,27 @@ enum CanalReserva {
   @@map("canal_reserva")
 }
 
+enum FormatoSessao {
+  DOIS_D
+  TRES_D
+
+  @@map("formato_sessao")
+}
+
+enum IdiomaSessao {
+  DUBLADO
+  LEGENDADO
+
+  @@map("idioma_sessao")
+}
+
+enum TipoIngresso {
+  INTEIRA
+  MEIA
+
+  @@map("tipo_ingresso")
+}
+
 enum MetodoPagamento {
   PIX
   CARTAO
@@ -139,6 +160,8 @@ model Sessao {
   salaId       Int      @map("sala_id")
   dataHora     DateTime @map("data_hora") @db.Timestamptz(3)
   preco        Decimal  @db.Decimal(10, 2)
+  formato      FormatoSessao @default(DOIS_D)
+  idioma       IdiomaSessao  @default(DUBLADO)
   cancelada    Boolean  @default(false)
   criadoEm     DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
   atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em") @db.Timestamptz(3)
@@ -183,6 +206,8 @@ model Reserva {
   status        StatusReserva @default(PENDENTE)
   canal         CanalReserva  @default(APP)
   total         Decimal       @db.Decimal(10, 2)
+  // Quantos dos assentos são meia-entrada (os demais são inteira). CHECK qtd_meia >= 0 na migration.
+  qtdMeia       Int           @default(0) @map("qtd_meia")
   expiraEm      DateTime      @map("expira_em") @db.Timestamptz(3)
   // Venda no balcão: nome informado pelo comprador (opcional).
   nomeComprador String?       @map("nome_comprador") @db.VarChar(120)
@@ -224,6 +249,9 @@ model Ingresso {
   codigo          String    @unique @db.VarChar(16)
   reservaId       Int       @map("reserva_id")
   sessaoAssentoId Int       @unique @map("sessao_assento_id")
+  tipo            TipoIngresso @default(INTEIRA)
+  // Valor pago por este ingresso (inteira = preço da sessão; meia = metade). CHECK valor > 0.
+  valor           Decimal   @db.Decimal(10, 2)
   utilizadoEm     DateTime? @map("utilizado_em") @db.Timestamptz(3)
   validadoPorId   Int?      @map("validado_por_id")
   emitidoEm       DateTime  @default(now()) @map("emitido_em") @db.Timestamptz(3)

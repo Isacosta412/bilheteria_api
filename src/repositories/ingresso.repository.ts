@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type TipoIngresso } from '@prisma/client';
 import { clientePadrao, type ClienteBanco } from './transacao';
 
 const comDetalhes = {
@@ -10,6 +10,8 @@ const comDetalhes = {
         select: {
           id: true,
           dataHora: true,
+          formato: true,
+          idioma: true,
           filme: { select: { id: true, titulo: true, classificacao: true, duracaoMinutos: true } },
           sala: { select: { id: true, nome: true } },
         },
@@ -29,7 +31,7 @@ export const ingressoRepository = {
 
   /** UNIQUE(sessao_assento_id): um assento de uma sessão nunca gera dois ingressos. */
   async criarVarios(
-    dados: { codigo: string; reservaId: number; sessaoAssentoId: number }[],
+    dados: { codigo: string; reservaId: number; sessaoAssentoId: number; tipo: TipoIngresso; valor: Prisma.Decimal }[],
     cliente: ClienteBanco,
   ): Promise<void> {
     await cliente.ingresso.createMany({ data: dados });

@@ -1,4 +1,4 @@
-import { Prisma, StatusAssento } from '@prisma/client';
+import { Prisma, StatusAssento, type FormatoSessao, type IdiomaSessao } from '@prisma/client';
 import { clientePadrao, type ClienteBanco } from './transacao';
 
 /** Relações e contagem de assentos livres no instante `agora`. */
@@ -38,6 +38,8 @@ export interface NovaSessao {
   salaId: number;
   dataHora: Date;
   preco: Prisma.Decimal;
+  formato: FormatoSessao;
+  idioma: IdiomaSessao;
 }
 
 /** Sessão da agenda de uma sala, com a duração do filme (para o cálculo de sobreposição no service). */
@@ -70,6 +72,21 @@ export const sessaoRepository = {
   async criar(dados: NovaSessao, cliente: ClienteBanco = clientePadrao): Promise<number> {
     const sessao = await cliente.sessao.create({ data: dados, select: { id: true } });
     return sessao.id;
+  },
+
+  async atualizar(
+    id: number,
+    dados: { formato?: FormatoSessao | undefined; idioma?: IdiomaSessao | undefined },
+    cliente: ClienteBanco = clientePadrao,
+  ): Promise<boolean> {
+    const { count } = await cliente.sessao.updateMany({
+      where: { id },
+      data: {
+        ...(dados.formato !== undefined && { formato: dados.formato }),
+        ...(dados.idioma !== undefined && { idioma: dados.idioma }),
+      },
+    });
+    return count > 0;
   },
 
   /** Sessões não canceladas da sala com início em [de, ate). */
