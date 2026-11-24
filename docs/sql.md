@@ -3,6 +3,8 @@
 Material de apoio para a apresentação de **Banco de Dados II**.
 Todo o SQL abaixo está na migration [`prisma/migrations/20261118001337_sql_regras_banco/migration.sql`](../prisma/migrations/20261118001337_sql_regras_banco/migration.sql), criada com `npx prisma migrate dev --create-only` e escrita à mão. As CHECK constraints estão na migration anterior, `constraints_check` (ver [der.md](der.md)).
 
+A migration [`20261124000000_formato_idioma_meia`](../prisma/migrations/20261124000000_formato_idioma_meia/migration.sql) recriou a view (seção 4) para a receita somar o valor pago em cada ingresso, já que a meia-entrada custa metade.
+
 ## Quem faz o quê: service × banco
 
 | Camada | Papel | Exemplos |
@@ -219,7 +221,7 @@ SELECT
         / NULLIF(COUNT(sa.id), 0),
       2),
     0)::NUMERIC(5, 2)                                           AS taxa_ocupacao,
-  (COUNT(i.id) * se.preco)::NUMERIC(12, 2)                      AS receita
+  COALESCE(SUM(i.valor), 0)::NUMERIC(12, 2)                     AS receita
 FROM sessao se
 JOIN filme f            ON f.id = se.filme_id
 JOIN sala sa_sala       ON sa_sala.id = se.sala_id
@@ -231,7 +233,8 @@ GROUP BY se.id, f.id, f.titulo, sa_sala.id, sa_sala.nome;
 **Pontos para explicar:**
 - **`COUNT(*) FILTER (WHERE ...)`:** conta vendidos, reservados e livres numa única passada pelas linhas, sem subconsultas.
 - **`LEFT JOIN`:** uma sessão aparece no relatório mesmo sem nenhum ingresso (receita 0, taxa 0).
-- **O JOIN com ingresso não duplica linhas:** `UNIQUE(sessao_assento_id)` garante no máximo um ingresso por assento da sessão. Por isso `COUNT(i.id) × preco` é exatamente a soma dos preços dos ingressos vendidos.
+- **O JOIN com ingresso não duplica linhas:** `UNIQUE(sessao_assento_id)` garante no máximo um ingresso por assento da sessão. Por isso `SUM(i.valor)` soma cada ingresso vendido uma única vez.
+- **Receita com meia-entrada:** cada ingresso guarda o `valor` pago (inteira = preço da sessão; meia = metade). A receita é a soma desses valores, e não `vendidos × preço`. A view foi recriada com `CREATE OR REPLACE VIEW` na migration `formato_idioma_meia`, com as mesmas colunas na mesma ordem.
 - **`NULLIF(capacidade, 0)`** evita divisão por zero, e `COALESCE(..., 0)` devolve 0% nesse caso.
 - **Reservados "efetivos":** um assento `RESERVADO` com prazo vencido, que a procedure ainda não liberou, conta como **livre**. É o que um cliente realmente consegue reservar naquele momento.
 - **`GROUP BY se.id, ...`:** como `se.id` é a PK, o PostgreSQL aceita `se.data_hora`, `se.preco` e `se.cancelada` no SELECT sem listá-los (dependência funcional).

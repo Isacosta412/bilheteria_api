@@ -1,6 +1,6 @@
 # DER – bilheteria-api
 
-Diagrama gerado a partir de `prisma/schema.prisma` e das migrations `init` e `constraints_check`.
+Diagrama gerado a partir de `prisma/schema.prisma` e das migrations `init`, `constraints_check` e `formato_idioma_meia`.
 Nomes reais do banco (snake_case). Para exportar como imagem: cole o bloco em https://mermaid.live.
 
 ```mermaid
@@ -50,6 +50,8 @@ erDiagram
         int sala_id FK
         timestamptz data_hora
         decimal preco "CHECK > 0"
+        formato_sessao formato "DOIS_D | TRES_D"
+        idioma_sessao idioma "DUBLADO | LEGENDADO"
         boolean cancelada
         timestamptz criado_em
         timestamptz atualizado_em
@@ -71,6 +73,7 @@ erDiagram
         status_reserva status "PENDENTE | PAGA | EXPIRADA | CANCELADA"
         canal_reserva canal "APP | BALCAO"
         decimal total "CHECK > 0"
+        int qtd_meia "CHECK >= 0"
         timestamptz expira_em
         timestamptz criado_em
         timestamptz atualizado_em
@@ -89,6 +92,8 @@ erDiagram
         varchar codigo UK
         int reserva_id FK
         int sessao_assento_id FK,UK
+        tipo_ingresso tipo "INTEIRA | MEIA"
+        decimal valor "CHECK > 0"
         timestamptz utilizado_em "nulo"
         int validado_por_id FK "nulo"
         timestamptz emitido_em
@@ -122,6 +127,12 @@ erDiagram
 - `ck_assento_fila_formato`: fila com 1 ou 2 letras maiúsculas.
 - `ck_sessao_assento_reservado_ate`: `RESERVADO` exige `reservado_ate`.
 - `ck_sessao_assento_coerencia_reserva`: `LIVRE` ⇒ sem reserva e sem prazo; `RESERVADO`/`VENDIDO` ⇒ com `reserva_id`.
+- Migration `formato_idioma_meia`: `ck_reserva_qtd_meia` (`qtd_meia >= 0`) e `ck_ingresso_valor_positivo` (`valor > 0`).
+
+**Formato, idioma e meia-entrada** (migration `formato_idioma_meia`)
+- `sessao.formato` (2D/3D) e `sessao.idioma` (dublado/legendado), com padrão `DOIS_D` e `DUBLADO` para as sessões que já existiam.
+- `reserva.qtd_meia`: quantos assentos da reserva são meia-entrada. O total é calculado no servidor: inteiras × preço + meias × metade do preço (arredondada para centavos).
+- `ingresso.tipo` e `ingresso.valor`: cada ingresso guarda se é inteira ou meia e quanto foi pago por ele. Os ingressos emitidos antes da migration receberam `INTEIRA` e o preço da sessão.
 
 **Chaves estrangeiras (ON DELETE)**
 | FK | Regra |

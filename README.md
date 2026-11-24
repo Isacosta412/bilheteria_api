@@ -5,6 +5,26 @@ Trabalho Final de Programação II + Banco de Dados II (Unoesc).
 
 **Stack:** Node.js 20+, TypeScript (strict), Express 5, Prisma 6, PostgreSQL 16, Zod, Vitest + Supertest.
 
+## Em produção
+
+| | |
+|---|---|
+| API | `https://pipocou.163.176.53.31.sslip.io/api` |
+| Healthcheck | [`/api/health`](https://pipocou.163.176.53.31.sslip.io/api/health) → `{"status":"ok","banco":"ok"}` |
+| App web (front-end) | [pipocou.163.176.53.31.sslip.io](https://pipocou.163.176.53.31.sslip.io) ([bilheteria_app](https://github.com/Isacosta412/bilheteria_app)) |
+| Servidor | VM Oracle Cloud (São Paulo), Ubuntu 24.04: Nginx (HTTPS) + PM2 (`bilheteria-api`, em `/srv/api`) + PostgreSQL 16 |
+
+O Nginx entrega o app em `/` e repassa `/api/...` para a API em `127.0.0.1:3333` (sem o prefixo `/api`).
+
+**Contas de demonstração**
+
+| Perfil | E-mail | Senha |
+|---|---|---|
+| Operador (bilheteria, validação, gerência, relatórios) | `operador@pipocou.com` | `operador123` |
+| Cliente | `cliente@pipocou.com` | `cliente123` |
+
+**Documentação do banco:** [docs/der.md](docs/der.md) (diagrama entidade-relacionamento e restrições) e [docs/sql.md](docs/sql.md) (triggers, stored procedure, view, índices e relatório gerencial).
+
 ## Como rodar localmente
 
 Pré-requisitos: Node.js 20 ou superior, Docker (com Docker Compose) e npm.
@@ -42,7 +62,7 @@ Se o banco estiver fora do ar, a rota responde **503** com `{"status":"erro","ba
 | `npm test` | Roda os testes (Vitest + Supertest) no banco `bilheteria_test`. Precisa do Docker no ar |
 | `npm run prisma:migrate` | Cria/aplica migrations em desenvolvimento (`prisma migrate dev`) |
 | `npm run prisma:deploy` | Aplica migrations pendentes em produção (`prisma migrate deploy`) |
-| `npm run seed` | Cria/atualiza o operador inicial (idempotente; os dados de demonstração entram no B08) |
+| `npm run seed` | Cria/atualiza o operador inicial (idempotente). Só o operador: filmes, salas e sessões são cadastrados pela Gerência do app ou pela API |
 | `npm run demo:concorrencia -- --url <url>` | Demonstração ao vivo: N reservas simultâneas do mesmo assento (ver "Concorrência") |
 
 ### Variáveis de ambiente
@@ -129,6 +149,12 @@ Autenticação: `Authorization: Bearer <token>` (obtido no login). Datas em ISO 
 - Não podem se sobrepor na mesma sala, considerando a duração do filme + 15 min de limpeza (`SESSAO_SOBREPOSTA`).
 - A checagem e o INSERT rodam na mesma transação, com a sala travada por `SELECT ... FOR UPDATE`.
 - Cancelar: na mesma transação, cancela as reservas pendentes e só então confere os ingressos. Se houver venda, `SESSAO_COM_INGRESSOS` e rollback.
+
+**Formato, idioma e meia-entrada** (migration `formato_idioma_meia`)
+- Cada sessão tem formato (`DOIS_D`/`TRES_D`) e idioma (`DUBLADO`/`LEGENDADO`). O padrão é 2D dublado, e o operador troca com `PATCH /sessoes/:id`.
+- Na reserva, o cliente informa quantos assentos são meia (`meias`), na criação ou depois, com `PATCH /reservas/:id/meias`, enquanto ela está `PENDENTE`. As meias não podem passar da quantidade de assentos.
+- A meia custa metade do preço da sessão, arredondada para centavos (`src/utils/precos.ts`).
+- No pagamento, os primeiros `qtd_meia` assentos (em ordem) viram ingressos `MEIA` e os demais `INTEIRA`, cada um com o `valor` pago.
 
 **Reservas (regras 2, 3, 5 e 10)**
 - Cada reserva tem de 1 a 10 assentos, sem repetidos e todos da sala da sessão (`ASSENTO_INVALIDO`).
@@ -277,6 +303,21 @@ Os services lançam subclasses de `AppError` (`src/errors`), e o `errorHandler` 
 | `RegraNegocio` | 422 | código informado |
 | Rate limit em `/auth` | 429 | `MUITAS_TENTATIVAS` |
 | Qualquer outro erro | 500 | `ERRO_INTERNO` (stack trace só fora de produção) |
+
+### Publicar uma nova versão no servidor
+
+Com a chave da equipe em `~/.ssh/bilheteria.pem` (veja `acesso_servidor_oracle`):
+
+1. Faça uma cópia do banco: `pg_dump "$URL" -Fc -f ~/backups/banco.dump` (a `DATABASE_URL` do `/srv/api/.env`, sem o `?schema=...`).
+2. Envie `src/`, `prisma/` e os `package*.json` para `/srv/api` (ex.: `git archive` + `scp`).
+3. No servidor, em `/srv/api`:
+
+```bash
+npx prisma migrate deploy   # aplica só as migrations novas
+npm run build               # prisma generate + tsc
+pm2 restart bilheteria-api --update-env
+curl localhost:3333/health
+```
 
 ### Segurança
 
