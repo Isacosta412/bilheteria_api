@@ -25,6 +25,14 @@ O Nginx entrega o app em `/` e repassa `/api/...` para a API em `127.0.0.1:3333`
 
 **Documentação do banco:** [docs/der.md](docs/der.md) (diagrama entidade-relacionamento e restrições) e [docs/sql.md](docs/sql.md) (triggers, stored procedure, view, índices e relatório gerencial).
 
+**Diagramas**
+
+| Entidade-relacionamento | Casos de uso |
+|---|---|
+| [![DER](docs/diagrama-entidade-relacionamento.png)](docs/diagrama-entidade-relacionamento.png) | [![Casos de uso](docs/diagrama-casos-de-uso.png)](docs/diagrama-casos-de-uso.png) |
+
+**Banco e ORM:** o banco de dados é o **PostgreSQL 16**. O **Prisma** é o ORM: o código TypeScript usa o Prisma Client para consultar e gravar, e o Prisma Migrate cria as tabelas a partir do `schema.prisma`. O SQL que o Prisma não gera (triggers, stored procedure, view e índices parciais) está escrito à mão nas migrations, em SQL do PostgreSQL.
+
 ## Como rodar localmente
 
 Pré-requisitos: Node.js 20 ou superior, Docker (com Docker Compose) e npm.

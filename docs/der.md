@@ -1,6 +1,8 @@
 # DER – bilheteria-api
 
 Diagrama gerado a partir de `prisma/schema.prisma` e das migrations `init`, `constraints_check` e `formato_idioma_meia`.
+
+Versão em imagem: [diagrama-entidade-relacionamento.png](diagrama-entidade-relacionamento.png). Nela, os tipos enumerados aparecem com o nome do Prisma (`MetodoPagamento`, `StatusReserva`...); no PostgreSQL eles se chamam `metodo_pagamento`, `status_reserva`... (`@@map`).
 Nomes reais do banco (snake_case). Para exportar como imagem: cole o bloco em https://mermaid.live.
 
 ```mermaid
